@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Slide Recorder</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="app">
+    <div class="main">
+    <section class="stage-wrap">
+      <div class="stage">
+        <canvas id="canvas"></canvas>
+
+        <div class="drop">
+          <label class="drop-box" for="file">
+            <span class="drop-title">Glisse ton diapo ici</span>
+            <span class="drop-sub">PDF ou images, et ton script .md (optionnel). Ou clique pour choisir.</span>
+            <span class="keys">
+              <span><kbd>←</kbd> <kbd>→</kbd> slides</span>
+              <span><kbd>R</kbd> enregistrer</span>
+              <span><kbd>P</kbd> pause</span>
+              <span><kbd>C</kbd> caméra</span>
+              <span><kbd>T</kbd> texte</span>
+              <span><kbd>+</kbd> <kbd>−</kbd> taille du texte</span>
+              <span><kbd>F</kbd> plein écran</span>
+              <span>Bords de la caméra : taille</span>
+            </span>
+          </label>
+        </div>
+
+        <div class="countdown" id="countdown" hidden></div>
+      </div>
+    </section>
+
+    <aside class="note" aria-label="Texte de la slide">
+      <header class="note-head">
+        <div class="note-meta">
+          <span class="note-chapter" id="noteChapter"></span>
+          <span class="note-id mono" id="noteId"></span>
+        </div>
+        <button class="icon small" id="textSmaller" aria-label="Texte plus petit">A−</button>
+        <button class="icon small" id="textBigger" aria-label="Texte plus grand">A+</button>
+      </header>
+      <div class="note-body" id="noteBody"></div>
+      <footer class="note-next" id="noteNext" hidden></footer>
+    </aside>
+    </div>
+
+    <footer class="bar">
+      <div class="group">
+        <label class="btn" for="file">Ouvrir</label>
+        <input type="file" id="file" accept="application/pdf,image/*,.md,.markdown,.txt" multiple hidden>
+        <div class="pager">
+          <button class="icon" id="prev" aria-label="Slide précédente" disabled>
+            <svg viewBox="0 0 16 16" width="14" height="14"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <span class="counter mono" id="counter">– / –</span>
+          <button class="icon" id="next" aria-label="Slide suivante" disabled>
+            <svg viewBox="0 0 16 16" width="14" height="14"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="group">
+        <button class="rec" id="rec"><span class="dot"></span><span id="recLabel">Enregistrer</span></button>
+        <button class="btn" id="pause" hidden>Pause</button>
+        <span class="timer mono" id="timer">00:00</span>
+        <span class="meter" title="Niveau micro"><span id="meterFill"></span></span>
+      </div>
+
+      <div class="group">
+        <button class="btn toggle on text-only" id="textToggle">Texte</button>
+        <button class="btn toggle on" id="camToggle">Caméra</button>
+        <span class="select" id="camWrap" hidden><select id="camSelect" aria-label="Caméra"></select></span>
+        <span class="select" id="micWrap" hidden><select id="micSelect" aria-label="Micro"></select></span>
+      </div>
+    </footer>
+
+    <div class="toast" id="toast" role="status"></div>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
