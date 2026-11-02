@@ -1,6 +1,6 @@
 # Slide Recorder
 
-Une page web pour enregistrer une présentation : les slides, ta webcam par-dessus, ton micro, et le texte à dire affiché à côté (il n'apparaît pas dans la vidéo).
+Une page web pour enregistrer une présentation : ta voix, ta webcam et les slides sont enregistrées séparément, puis assemblées dans un écran de montage où tu coupes les passages inutiles avant d'exporter la vidéo. Le texte à dire s'affiche au centre de l'écran, près de la webcam (il n'apparaît pas dans la vidéo).
 
 Le cours **Stablecoins et RWA** est déjà dedans : les 64 slides dans l'ordre et le script de chaque slide. Tu ouvres la page et tout est chargé.
 
@@ -19,22 +19,38 @@ Puis ouvre l'adresse affichée (par défaut http://localhost:3000) dans **Chrome
 ## Enregistrer
 
 1. Le décompte démarre avec `R` (ou le bouton Enregistrer).
-2. Tu passes les slides avec les flèches : le texte de droite suit.
-3. `R` arrête. La vidéo (1920x1080, MP4 dans Chrome) se télécharge toute seule.
-
-Reste sur l'onglet pendant l'enregistrement : si tu changes d'onglet, Chrome met l'image en pause.
+2. Tu passes les slides avec les flèches : le texte suit. À droite, la slide en cours et le retour de ta webcam.
+3. Tu bégayes ? Appuie sur `M` et reprends ta phrase : le passage raté sera proposé à la coupe au montage.
+4. `R` arrête et ouvre le montage.
 
 | Touche | Action |
 | --- | --- |
 | `←` `→`, Espace, PageUp/PageDown | slide précédente / suivante |
 | `R` | enregistrer / arrêter |
 | `P` | pause / reprise |
-| `C` | afficher / masquer la caméra |
+| `M` | marquer un raté |
+| `C` | caméra enregistrée ou non |
 | `T` | afficher / masquer le texte |
 | `+` `-` | taille du texte |
 | `F` | plein écran |
 
-**Caméra** : glisse-la pour la déplacer (elle se range dans le coin le plus proche), tire un bord ou un coin pour la redimensionner, double-clique pour revenir à la taille par défaut.
+## Monter
+
+La voix, la caméra et les slides restent séparées jusqu'à l'export : tu peux tout régler après coup.
+
+- **Caméra** : choisis le coin, la taille, ou masque-la. Tu peux aussi la glisser dans l'aperçu. Elle ne recouvre jamais la slide, qui se réduit à côté.
+- **Voix** : règle le volume, remplace-la par un fichier retravaillé ailleurs, ou télécharge-la.
+- **Couper** : glisse sur la frise pour sélectionner, puis `⌫`. « Trouver les silences » propose les blancs, et chaque `M` propose la phrase ratée. Clic sur une zone hachurée pour la couper, sur une zone rouge pour la remettre. `⌘Z` annule.
+- **Exporter la vidéo** : MP4 1920x1080 dans Chrome. L'export se fait en temps réel, garde l'onglet visible.
+- **Pistes séparées** : télécharge la caméra, la voix et la chronologie du montage (JSON).
+
+| Touche (montage) | Action |
+| --- | --- |
+| Espace | lecture / pause |
+| `←` `→` (Maj : 5 s) | reculer / avancer d'une seconde |
+| `⌫` ou `X` | couper la sélection |
+| `⌘Z` | annuler |
+| `+` `-` | zoom de la frise |
 
 ## Utiliser d'autres slides
 

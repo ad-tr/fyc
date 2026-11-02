@@ -11,80 +11,205 @@
 </head>
 <body>
   <main class="app">
-    <div class="main">
-    <section class="stage-wrap">
-      <div class="stage">
-        <canvas id="canvas"></canvas>
 
-        <div class="drop">
-          <label class="drop-box" for="file">
-            <span class="drop-title">Glisse ton diapo ici</span>
-            <span class="drop-sub">PDF ou images, et ton script .md (optionnel). Ou clique pour choisir.</span>
-            <span class="keys">
-              <span><kbd>←</kbd> <kbd>→</kbd> slides</span>
-              <span><kbd>R</kbd> enregistrer</span>
-              <span><kbd>P</kbd> pause</span>
-              <span><kbd>C</kbd> caméra</span>
-              <span><kbd>T</kbd> texte</span>
-              <span><kbd>+</kbd> <kbd>−</kbd> taille du texte</span>
-              <span><kbd>F</kbd> plein écran</span>
-              <span>Bords de la caméra : taille</span>
-            </span>
-          </label>
+    <!-- Enregistrement : le texte au centre, la slide et la caméra en petit à droite -->
+    <section class="recorder" id="recorder">
+      <div class="rec-main">
+        <div class="center">
+          <div class="drop">
+            <label class="drop-box" for="file">
+              <span class="drop-title">Glisse ton diapo ici</span>
+              <span class="drop-sub">PDF ou images, et ton script .md (optionnel). Ou clique pour choisir.</span>
+              <span class="keys">
+                <span><kbd>←</kbd> <kbd>→</kbd> slides</span>
+                <span><kbd>R</kbd> enregistrer</span>
+                <span><kbd>P</kbd> pause</span>
+                <span><kbd>M</kbd> marquer un raté</span>
+                <span><kbd>C</kbd> caméra</span>
+                <span><kbd>T</kbd> texte</span>
+                <span><kbd>+</kbd> <kbd>−</kbd> taille du texte</span>
+                <span><kbd>F</kbd> plein écran</span>
+              </span>
+            </label>
+          </div>
+
+          <article class="note" aria-label="Texte de la slide">
+            <header class="note-head">
+              <div class="note-meta">
+                <span class="note-chapter" id="noteChapter"></span>
+                <span class="note-id mono" id="noteId"></span>
+              </div>
+              <button class="icon ghost small" id="textSmaller" aria-label="Texte plus petit">A−</button>
+              <button class="icon ghost small" id="textBigger" aria-label="Texte plus grand">A+</button>
+            </header>
+            <div class="note-body" id="noteBody"></div>
+            <footer class="note-next" id="noteNext" hidden></footer>
+          </article>
+
+          <div class="big-wrap"><canvas class="slide-big" id="slideBig"></canvas></div>
         </div>
 
-        <div class="countdown" id="countdown" hidden></div>
+        <aside class="side">
+          <div class="side-block thumb-block">
+            <div class="side-label"><span>Slide</span><span class="mono" id="sideCounter">–</span></div>
+            <canvas class="thumb" id="slideThumb"></canvas>
+          </div>
+          <div class="side-block cam-block">
+            <div class="side-label"><span>Caméra</span><span class="marks" id="markCount" hidden></span></div>
+            <div class="cam-box">
+              <div class="cam-preview">
+                <video id="camPreview" muted playsinline autoplay></video>
+                <span class="cam-off">Caméra coupée</span>
+              </div>
+            </div>
+          </div>
+        </aside>
       </div>
+
+      <footer class="bar">
+        <div class="group">
+          <label class="btn" for="file">Ouvrir</label>
+          <input type="file" id="file" accept="application/pdf,image/*,.md,.markdown,.txt" multiple hidden>
+          <div class="pager">
+            <button class="icon" id="prev" aria-label="Slide précédente" disabled>
+              <svg viewBox="0 0 16 16" width="14" height="14"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <span class="counter mono" id="counter">– / –</span>
+            <button class="icon" id="next" aria-label="Slide suivante" disabled>
+              <svg viewBox="0 0 16 16" width="14" height="14"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="group">
+          <button class="rec" id="rec"><span class="dot"></span><span id="recLabel">Enregistrer</span></button>
+          <button class="btn" id="pause" hidden>Pause</button>
+          <span class="timer mono" id="timer">00:00</span>
+          <span class="meter" title="Niveau micro"><span id="meterFill"></span></span>
+        </div>
+
+        <div class="group">
+          <button class="btn" id="openEditor" hidden>Montage</button>
+          <button class="btn toggle on text-only" id="textToggle">Texte</button>
+          <button class="btn toggle on" id="camToggle">Caméra</button>
+          <span class="select" id="camWrap" hidden><select id="camSelect" aria-label="Caméra"></select></span>
+          <span class="select" id="micWrap" hidden><select id="micSelect" aria-label="Micro"></select></span>
+        </div>
+      </footer>
     </section>
 
-    <aside class="note" aria-label="Texte de la slide">
-      <header class="note-head">
-        <div class="note-meta">
-          <span class="note-chapter" id="noteChapter"></span>
-          <span class="note-id mono" id="noteId"></span>
+    <!-- Montage : voix, caméra et slides restent séparées jusqu'à l'export -->
+    <section class="editor" id="editor" hidden>
+      <header class="ed-head">
+        <div class="ed-title">
+          <span>Montage</span>
+          <span class="ed-info" id="edInfo"></span>
         </div>
-        <button class="icon small" id="textSmaller" aria-label="Texte plus petit">A−</button>
-        <button class="icon small" id="textBigger" aria-label="Texte plus grand">A+</button>
+        <button class="btn ghost" id="edBack">Nouvel enregistrement</button>
       </header>
-      <div class="note-body" id="noteBody"></div>
-      <footer class="note-next" id="noteNext" hidden></footer>
-    </aside>
-    </div>
 
-    <footer class="bar">
-      <div class="group">
-        <label class="btn" for="file">Ouvrir</label>
-        <input type="file" id="file" accept="application/pdf,image/*,.md,.markdown,.txt" multiple hidden>
+      <div class="ed-top">
+        <div class="ed-stage-wrap">
+          <div class="ed-stage">
+            <canvas id="edCanvas"></canvas>
+            <div class="ed-progress" id="edProgress" hidden><span id="edProgressFill"></span></div>
+          </div>
+        </div>
+
+        <aside class="ed-panel">
+          <section class="ed-group">
+            <h3>Caméra</h3>
+            <div class="ed-row">
+              <div class="corner-pick" id="edCorner" role="group" aria-label="Position de la caméra">
+                <button data-corner="tl" aria-label="En haut à gauche"></button>
+                <button data-corner="tr" aria-label="En haut à droite"></button>
+                <button data-corner="bl" aria-label="En bas à gauche"></button>
+                <button data-corner="br" aria-label="En bas à droite"></button>
+              </div>
+              <button class="btn toggle on" id="edCamToggle">Visible</button>
+            </div>
+            <label class="ed-range"><span>Taille</span><input type="range" id="edCamSize" min="70" max="130" step="1" value="100"></label>
+          </section>
+
+          <section class="ed-group">
+            <h3>Voix</h3>
+            <label class="ed-range"><span>Volume</span><input type="range" id="edVolume" min="0" max="200" step="1" value="100"><output class="mono" id="edVolumeOut">100 %</output></label>
+            <div class="ed-row">
+              <label class="btn" for="edVoiceFile">Remplacer…</label>
+              <input type="file" id="edVoiceFile" accept="audio/*,video/*" hidden>
+              <button class="btn" id="edVoiceDl">Télécharger</button>
+            </div>
+          </section>
+
+          <section class="ed-group">
+            <h3>Exporter</h3>
+            <button class="btn primary" id="edExport">Exporter la vidéo</button>
+            <button class="btn" id="edTracks">Pistes séparées</button>
+            <p class="ed-hint">L'export se fait en temps réel : garde cet onglet visible.</p>
+          </section>
+        </aside>
+      </div>
+
+      <div class="ed-tools">
+        <button class="icon" id="edPlay" aria-label="Lecture">
+          <svg class="i-play" viewBox="0 0 16 16" width="14" height="14"><path d="M5 3.5v9l7-4.5z" fill="currentColor"/></svg>
+          <svg class="i-pause" viewBox="0 0 16 16" width="14" height="14"><path d="M5 3.5h2v9H5zm4 0h2v9H9z" fill="currentColor"/></svg>
+        </button>
+        <span class="ed-time mono" id="edTime">00:00.0</span>
+        <span class="ed-final" id="edFinal"></span>
+        <span class="ed-sep"></span>
+        <button class="btn" id="edCut" disabled>Couper la sélection</button>
+        <div class="ed-silence">
+          <button class="btn" id="edSilence">Trouver les silences</button>
+          <span class="select"><select id="edSilenceMin" aria-label="Durée minimale d'un silence">
+            <option value="0.5">&gt; 0,5 s</option>
+            <option value="1" selected>&gt; 1 s</option>
+            <option value="2">&gt; 2 s</option>
+          </select></span>
+        </div>
+        <div class="ed-props" id="edProps"></div>
+        <button class="btn" id="edUndo" disabled>Annuler</button>
+        <span class="ed-spacer"></span>
         <div class="pager">
-          <button class="icon" id="prev" aria-label="Slide précédente" disabled>
-            <svg viewBox="0 0 16 16" width="14" height="14"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
-          <span class="counter mono" id="counter">– / –</span>
-          <button class="icon" id="next" aria-label="Slide suivante" disabled>
-            <svg viewBox="0 0 16 16" width="14" height="14"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
+          <button class="icon" id="edZoomOut" aria-label="Dézoomer">−</button>
+          <button class="icon" id="edZoomIn" aria-label="Zoomer">+</button>
         </div>
       </div>
 
-      <div class="group">
-        <button class="rec" id="rec"><span class="dot"></span><span id="recLabel">Enregistrer</span></button>
-        <button class="btn" id="pause" hidden>Pause</button>
-        <span class="timer mono" id="timer">00:00</span>
-        <span class="meter" title="Niveau micro"><span id="meterFill"></span></span>
+      <div class="tl-wrap">
+        <div class="tl-names" aria-hidden="true">
+          <span class="n-ruler"></span>
+          <span class="n-slides">Slides</span>
+          <span class="n-cam">Caméra</span>
+          <span class="n-voice">Voix</span>
+        </div>
+        <div class="tl-scroll" id="tlScroll">
+          <div class="tl" id="tl">
+            <canvas class="tl-ruler" id="tlRuler"></canvas>
+            <div class="lane lane-slides" id="laneSlides"></div>
+            <div class="lane lane-cam" id="laneCam"></div>
+            <div class="lane lane-voice" id="laneVoice"><canvas id="tlWave"></canvas></div>
+            <div class="tl-sel" id="tlSel" hidden></div>
+            <div class="tl-overlay" id="tlOverlay"></div>
+            <div class="tl-head" id="tlHead"></div>
+          </div>
+        </div>
       </div>
 
-      <div class="group">
-        <button class="btn toggle on text-only" id="textToggle">Texte</button>
-        <button class="btn toggle on" id="camToggle">Caméra</button>
-        <span class="select" id="camWrap" hidden><select id="camSelect" aria-label="Caméra"></select></span>
-        <span class="select" id="micWrap" hidden><select id="micSelect" aria-label="Micro"></select></span>
-      </div>
-    </footer>
+      <p class="ed-legend">
+        Glisse sur la frise pour sélectionner, puis <kbd>⌫</kbd> pour couper.
+        Clic sur une zone hachurée pour la couper, sur une zone rouge pour la remettre.
+        <kbd>Espace</kbd> lecture · <kbd>⌘Z</kbd> annuler
+      </p>
+    </section>
 
+    <div class="countdown" id="countdown" hidden></div>
     <div class="toast" id="toast" role="status"></div>
   </main>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="common.js"></script>
+  <script src="editor.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -1,59 +1,37 @@
 (() => {
-  // Résolution de la vidéo enregistrée
-  const W = 1920, H = 1080, FPS = 30;
-  const DEFAULT_CAM = { w: 420, h: 560 }; // taille par défaut de la caméra, en px vidéo
-  const MARGIN = 0; // écart entre la caméra et le bord de la vidéo
-  const FADE_MS = 180;
+  const { $, clamp, wait, fmt, token, toast, pickMime, audioCtx, edgeColor, drawContain } = SR;
 
-  const $ = (id) => document.getElementById(id);
-  const canvas = $('canvas');
-  const ctx = canvas.getContext('2d');
-  canvas.width = W;
-  canvas.height = H;
+  // Résolution de rendu des slides
+  const W = 1920, H = 1080;
+  const THUMB = { w: 640, h: 360 };
 
-  const css = getComputedStyle(document.documentElement);
-  const token = (name) => css.getPropertyValue(name).trim();
-  const COLORS = { bg: token('--canvas-bg'), shadow: token('--cam-shadow') };
+  const bigCanvas = $('slideBig');
+  const thumbCanvas = $('slideThumb');
+  bigCanvas.width = W;
+  bigCanvas.height = H;
+  thumbCanvas.width = THUMB.w;
+  thumbCanvas.height = THUMB.h;
+  const camPreview = $('camPreview');
+  const BG = token('--canvas-bg');
 
   if (window.pdfjsLib) {
     pdfjsLib.GlobalWorkerOptions.workerSrc =
       'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   }
 
-  const video = document.createElement('video');
-  video.muted = true;
-  video.playsInline = true;
-
   const s = {
     source: null, slides: [], script: null, count: 0, index: 0,
-    textOn: true, textSize: 22,
-    cache: new Map(), current: null, prev: null, fadeAt: 0, loadToken: 0,
-    camOn: true, camAlpha: 1, corner: 'tr', camSize: { ...DEFAULT_CAM },
-    bubble: null, drag: null,
+    textOn: true, textSize: 28,
+    cache: new Map(), shown: null, loadToken: 0,
+    camOn: true,
     camStream: null, micStream: null,
-    rec: null, recVideoTrack: null, chunks: [], mime: '',
+    // Prise en cours : une piste caméra et une piste voix séparées, plus la chronologie des slides
+    take: null,
     counting: false, paused: false, elapsed: 0, lastTick: 0, shownSec: -1,
+    project: null,
   };
 
-  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-  const ease = (t) => 1 - Math.pow(1 - t, 3);
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-  const fmt = (ms) => {
-    const sec = Math.floor(ms / 1000);
-    const h = Math.floor(sec / 3600);
-    const mm = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
-    const ss = String(sec % 60).padStart(2, '0');
-    return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
-  };
-
-  let toastTimer;
-  function toast(msg) {
-    const t = $('toast');
-    t.textContent = msg;
-    t.classList.add('show');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove('show'), 4500);
-  }
+  const editing = () => document.body.classList.contains('editing');
 
   /* ---------- Slides & script ---------- */
 
@@ -64,6 +42,7 @@
   const isScript = (f) => /\.(md|markdown|txt)$/i.test(f.name);
 
   async function loadFiles(list) {
+    if (s.take) return toast("Termine l'enregistrement avant de changer de diapo.");
     const files = [...list];
     const scripts = files.filter(isScript).sort(byName);
     const pdf = files.find(isPdf);
@@ -92,7 +71,9 @@
   }
 
   function setSource(source) {
-    if (s.source?.kind === 'pdf') s.source.doc.destroy();
+    const old = s.source;
+    // Le montage en cours peut encore avoir besoin de l'ancien PDF
+    if (old?.kind === 'pdf' && old !== s.project?.source) old.doc.destroy();
     s.source = source;
   }
 
@@ -203,7 +184,7 @@
     s.slides = slides;
     s.count = slides.length;
     s.cache.clear();
-    s.current = s.prev = null;
+    s.shown = null;
     s.index = 0;
     document.body.classList.toggle('loaded', s.count > 0);
     document.body.classList.toggle('has-script', !!script);
@@ -213,10 +194,12 @@
     if (info) toast(info);
   }
 
-  async function renderSlide(i) {
-    const slide = s.slides[i];
+  // Rend une slide à partir d'une liste figée (le montage garde la sienne)
+  async function renderSlide(slides, source, i) {
+    const slide = slides[i];
+    if (!slide) return null;
     if (slide.file) return createImageBitmap(slide.file);
-    const page = await s.source.doc.getPage(slide.page);
+    const page = await source.doc.getPage(slide.page);
     const base = page.getViewport({ scale: 1 });
     const viewport = page.getViewport({ scale: Math.min(W / base.width, H / base.height) });
     const c = document.createElement('canvas');
@@ -227,38 +210,51 @@
   }
 
   function getSlide(i) {
-    if (!s.cache.has(i)) s.cache.set(i, renderSlide(i).catch(() => null));
+    if (!s.cache.has(i)) s.cache.set(i, renderSlide(s.slides, s.source, i).catch(() => null));
     return s.cache.get(i);
   }
 
   async function go(i, instant = false) {
     if (!s.count) return;
     i = clamp(i, 0, s.count - 1);
-    if (i === s.index && s.current && !instant) return;
+    if (i === s.index && s.shown && !instant) return;
     s.index = i;
+    logSlide(i);
     updatePager();
     renderNote();
 
     const token = ++s.loadToken;
     const img = await getSlide(i);
     if (token !== s.loadToken || !img) return;
-
-    s.prev = instant ? null : s.current;
-    s.current = img;
-    s.fadeAt = performance.now();
+    showSlide(img);
 
     // Précharge les voisines, libère le reste
     [i + 1, i + 2, i - 1].forEach((j) => j >= 0 && j < s.count && getSlide(j));
     for (const k of s.cache.keys()) if (Math.abs(k - i) > 3) s.cache.delete(k);
   }
 
+  function paint(c, img) {
+    const g = c.getContext('2d');
+    g.fillStyle = edgeColor(img) || BG;
+    g.fillRect(0, 0, c.width, c.height);
+    drawContain(g, img, { x: 0, y: 0, w: c.width, h: c.height });
+  }
+
+  function showSlide(img) {
+    s.shown = img;
+    paint(thumbCanvas, img);
+    paint(bigCanvas, img);
+  }
+
   function updatePager() {
-    $('counter').textContent = s.count ? `${s.index + 1} / ${s.count}` : '– / –';
+    const label = s.count ? `${s.index + 1} / ${s.count}` : '– / –';
+    $('counter').textContent = label;
+    $('sideCounter').textContent = s.count ? label : '–';
     $('prev').disabled = !s.count || s.index === 0;
     $('next').disabled = !s.count || s.index === s.count - 1;
   }
 
-  /* ---------- Panneau texte ---------- */
+  /* ---------- Texte ---------- */
 
   const TEXT_KEY = 'slide-recorder:text';
   const escapeHtml = (str) =>
@@ -304,7 +300,7 @@
   }
 
   function setTextSize(px) {
-    s.textSize = clamp(px, 14, 44);
+    s.textSize = clamp(px, 16, 48);
     document.documentElement.style.setProperty('--note-size', `${s.textSize}px`);
     saveTextPrefs();
   }
@@ -320,7 +316,7 @@
   function loadTextPrefs() {
     try {
       const p = JSON.parse(localStorage.getItem(TEXT_KEY));
-      if (typeof p?.size === 'number') s.textSize = clamp(p.size, 14, 44);
+      if (typeof p?.size === 'number') s.textSize = clamp(p.size, 16, 48);
       if (p?.on === false) s.textOn = false;
     } catch {}
     document.documentElement.style.setProperty('--note-size', `${s.textSize}px`);
@@ -334,180 +330,6 @@
     } catch {}
   }
 
-  /* ---------- Rendu ---------- */
-
-  function bubbleTarget() {
-    const { w, h } = s.camSize;
-    return {
-      x: s.corner.includes('l') ? MARGIN + w / 2 : W - MARGIN - w / 2,
-      y: s.corner.includes('t') ? MARGIN + h / 2 : H - MARGIN - h / 2,
-      w,
-      h,
-    };
-  }
-
-  function drawSlide(img, alpha) {
-    const scale = Math.min(W / img.width, H / img.height);
-    const dw = img.width * scale, dh = img.height * scale;
-    ctx.globalAlpha = alpha;
-    ctx.drawImage(img, (W - dw) / 2, (H - dh) / 2, dw, dh);
-    ctx.globalAlpha = 1;
-  }
-
-  function drawCam() {
-    const b = s.bubble;
-    const tg = bubbleTarget();
-    const k = 0.18;
-    if (!s.drag) for (const key of ['x', 'y', 'w', 'h']) b[key] += (tg[key] - b[key]) * k;
-    s.camAlpha += ((s.camOn ? 1 : 0) - s.camAlpha) * 0.2;
-
-    if (s.camAlpha < 0.01 || !video.videoWidth) return;
-    const { x, y, w, h } = b;
-    const left = x - w / 2, top = y - h / 2;
-    const ratio = w / h;
-
-    ctx.save();
-    ctx.globalAlpha = s.camAlpha;
-    ctx.shadowColor = COLORS.shadow;
-    ctx.shadowBlur = 40;
-    ctx.shadowOffsetY = 10;
-    ctx.fillStyle = COLORS.bg;
-    ctx.fillRect(left, top, w, h);
-    ctx.shadowColor = 'transparent';
-
-    // Crop centré dans l'image de la webcam au ratio du cadre, en miroir
-    const vw = video.videoWidth, vh = video.videoHeight;
-    let sw = vw, sh = vw / ratio;
-    if (sh > vh) { sh = vh; sw = vh * ratio; }
-    ctx.translate(x, y);
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, (vw - sw) / 2, (vh - sh) / 2, sw, sh, -w / 2, -h / 2, w, h);
-    ctx.restore();
-  }
-
-  function frame(now) {
-    ctx.fillStyle = COLORS.bg;
-    ctx.fillRect(0, 0, W, H);
-
-    const t = Math.min(1, (now - s.fadeAt) / FADE_MS);
-    if (s.prev && t < 1) drawSlide(s.prev, 1);
-    if (s.current) drawSlide(s.current, s.prev ? ease(t) : 1);
-    if (t >= 1) s.prev = null;
-
-    drawCam();
-    tickTimer(now);
-    tickMeter();
-    requestAnimationFrame(frame);
-  }
-
-  /* ---------- Caméra : déplacer & redimensionner ---------- */
-
-  const EDGE = 28; // zone de prise des bords, en px vidéo
-  const MIN_W = 120, MIN_H = 120;
-  const PREFS_KEY = 'slide-recorder:cam';
-
-  function toCanvas(e) {
-    const rect = canvas.getBoundingClientRect();
-    return { x: ((e.clientX - rect.left) * W) / rect.width, y: ((e.clientY - rect.top) * H) / rect.height };
-  }
-
-  function camBox() {
-    const { x, y, w, h } = s.bubble;
-    return { l: x - w / 2, t: y - h / 2, r: x + w / 2, b: y + h / 2 };
-  }
-
-  // null = hors caméra, { move } = intérieur, sinon les bords attrapés
-  function camHit(p) {
-    if (!s.camOn) return null;
-    const box = camBox();
-    const pad = EDGE / 2;
-    if (p.x < box.l - pad || p.x > box.r + pad || p.y < box.t - pad || p.y > box.b + pad) return null;
-    const e = {
-      l: Math.abs(p.x - box.l) < EDGE,
-      r: Math.abs(p.x - box.r) < EDGE,
-      t: Math.abs(p.y - box.t) < EDGE,
-      b: Math.abs(p.y - box.b) < EDGE,
-    };
-    return e.l || e.r || e.t || e.b ? e : { move: true };
-  }
-
-  function cursorFor(hit) {
-    if (!hit) return '';
-    if (hit.move) return 'grab';
-    if ((hit.l && hit.t) || (hit.r && hit.b)) return 'nwse-resize';
-    if ((hit.r && hit.t) || (hit.l && hit.b)) return 'nesw-resize';
-    return hit.l || hit.r ? 'ew-resize' : 'ns-resize';
-  }
-
-  function fitSize(w, h) {
-    return { w: clamp(w, MIN_W, W - MARGIN * 2), h: clamp(h, MIN_H, H - MARGIN * 2) };
-  }
-
-  function loadPrefs() {
-    try {
-      const p = JSON.parse(localStorage.getItem(PREFS_KEY));
-      if (p?.w > 0 && p?.h > 0) s.camSize = fitSize(p.w, p.h);
-      if (/^[tb][lr]$/.test(p?.corner)) s.corner = p.corner;
-    } catch {}
-  }
-
-  function savePrefs() {
-    try {
-      localStorage.setItem(PREFS_KEY, JSON.stringify({ ...s.camSize, corner: s.corner }));
-    } catch {}
-  }
-
-  canvas.addEventListener('pointerdown', (e) => {
-    const p = toCanvas(e);
-    const hit = camHit(p);
-    if (!hit) return;
-    s.drag = { hit, p0: p, box: camBox() };
-    canvas.setPointerCapture(e.pointerId);
-    if (hit.move) canvas.style.cursor = 'grabbing';
-  });
-
-  canvas.addEventListener('pointermove', (e) => {
-    const p = toCanvas(e);
-    if (!s.drag) {
-      canvas.style.cursor = cursorFor(camHit(p));
-      return;
-    }
-    const { hit, p0, box } = s.drag;
-    const dx = p.x - p0.x, dy = p.y - p0.y;
-    let { l, t, r, b } = box;
-    if (hit.move) {
-      const w = r - l, h = b - t;
-      l = clamp(l + dx, 0, W - w);
-      t = clamp(t + dy, 0, H - h);
-      r = l + w;
-      b = t + h;
-    } else {
-      if (hit.l) l = clamp(l + dx, 0, r - MIN_W);
-      if (hit.r) r = clamp(r + dx, l + MIN_W, W);
-      if (hit.t) t = clamp(t + dy, 0, b - MIN_H);
-      if (hit.b) b = clamp(b + dy, t + MIN_H, H);
-    }
-    Object.assign(s.bubble, { x: (l + r) / 2, y: (t + b) / 2, w: r - l, h: b - t });
-  });
-
-  const endDrag = (e) => {
-    if (!s.drag) return;
-    s.drag = null;
-    s.camSize = fitSize(s.bubble.w, s.bubble.h);
-    s.corner = (s.bubble.y < H / 2 ? 't' : 'b') + (s.bubble.x < W / 2 ? 'l' : 'r');
-    canvas.style.cursor = cursorFor(camHit(toCanvas(e)));
-    savePrefs();
-  };
-  canvas.addEventListener('pointerup', endDrag);
-  canvas.addEventListener('pointercancel', endDrag);
-
-  // Double-clic sur la caméra : taille par défaut
-  canvas.addEventListener('dblclick', (e) => {
-    if (!camHit(toCanvas(e))) return;
-    s.camSize = { ...DEFAULT_CAM };
-    savePrefs();
-  });
-
   /* ---------- Caméra & micro ---------- */
 
   const VIDEO = { width: { ideal: 1280 }, height: { ideal: 720 } };
@@ -516,8 +338,8 @@
   function attachCam(stream) {
     s.camStream?.getTracks().forEach((t) => t.stop());
     s.camStream = stream;
-    video.srcObject = stream;
-    video.play().catch(() => {});
+    camPreview.srcObject = stream;
+    camPreview.play().catch(() => {});
   }
 
   function attachMic(stream) {
@@ -575,15 +397,15 @@
     fill($('micWrap'), $('micSelect'), 'audioinput', s.micStream);
   }
 
-  let audioCtx, analyser, meterBuf, level = 0;
+  let analyser, meterBuf, level = 0;
   function hookMeter() {
     const track = s.micStream?.getAudioTracks()[0];
     if (!track) return;
-    audioCtx ??= new AudioContext();
-    analyser = audioCtx.createAnalyser();
+    const ac = audioCtx();
+    analyser = ac.createAnalyser();
     analyser.fftSize = 512;
     meterBuf = new Float32Array(analyser.fftSize);
-    audioCtx.createMediaStreamSource(s.micStream).connect(analyser);
+    ac.createMediaStreamSource(s.micStream).connect(analyser);
   }
 
   function tickMeter() {
@@ -597,28 +419,30 @@
   }
 
   // L'AudioContext ne démarre qu'après une interaction
-  const resumeAudio = () => audioCtx?.state === 'suspended' && audioCtx.resume();
+  const resumeAudio = () => audioCtx().state === 'suspended' && audioCtx().resume();
   document.addEventListener('pointerdown', resumeAudio);
   document.addEventListener('keydown', resumeAudio);
 
   /* ---------- Enregistrement ---------- */
 
-  function pickMime() {
-    if (!window.MediaRecorder) return '';
-    return [
-      'video/mp4;codecs=avc1.640028,mp4a.40.2',
-      'video/mp4;codecs=avc1,mp4a.40.2',
-      'video/mp4',
-      'video/webm;codecs=vp9,opus',
-      'video/webm;codecs=vp8,opus',
-      'video/webm',
-    ].find((m) => MediaRecorder.isTypeSupported(m)) || '';
+  // Temps enregistré (pauses exclues), en ms
+  const recNow = () => s.elapsed + (s.take && !s.paused ? performance.now() - s.lastTick : 0);
+
+  function logSlide(i) {
+    const take = s.take;
+    if (!take) return;
+    const last = take.events[take.events.length - 1];
+    if (last.index === i) return;
+    const t = recNow();
+    if (t - last.t < 1) last.index = i;
+    else take.events.push({ t, index: i });
   }
 
   async function toggleRec() {
     if (s.counting) { s.counting = false; return; }
-    if (s.rec) return stopRec();
+    if (s.take) return stopRec();
     if (!window.MediaRecorder) return toast("Ce navigateur ne sait pas enregistrer. Utilise Chrome.");
+    if (!s.count) return toast("Charge d'abord tes slides.");
 
     s.counting = true;
     const el = $('countdown');
@@ -636,30 +460,35 @@
     if (confirmed) startRec();
   }
 
-  function startRec() {
-    const vTrack = canvas.captureStream(FPS).getVideoTracks()[0];
-    const tracks = [vTrack];
-    const mic = s.micStream?.getAudioTracks()[0];
-    if (mic) tracks.push(mic);
-    else toast('Pas de micro : la vidéo sera muette.');
+  function makeRecorder(track, kind) {
+    const mime = pickMime(kind);
+    const rec = new MediaRecorder(new MediaStream([track]), {
+      mimeType: mime || undefined,
+      ...(kind === 'video' ? { videoBitsPerSecond: 6_000_000 } : { audioBitsPerSecond: 192_000 }),
+    });
+    const r = { rec, mime, chunks: [] };
+    rec.ondataavailable = (e) => e.data.size && r.chunks.push(e.data);
+    r.stopped = new Promise((res) => { rec.onstop = res; });
+    return r;
+  }
 
-    s.mime = pickMime();
+  function startRec() {
+    const camTrack = s.camOn ? s.camStream?.getVideoTracks()[0] : null;
+    const micTrack = s.micStream?.getAudioTracks()[0];
+    if (!camTrack && !micTrack) return toast('Ni caméra ni micro : rien à enregistrer.');
+    if (!micTrack) toast('Pas de micro : la vidéo sera muette.');
+
+    let cam = null, mic = null;
     try {
-      s.rec = new MediaRecorder(new MediaStream(tracks), {
-        mimeType: s.mime || undefined,
-        videoBitsPerSecond: 8_000_000,
-        audioBitsPerSecond: 128_000,
-      });
+      cam = camTrack ? makeRecorder(camTrack, 'video') : null;
+      mic = micTrack ? makeRecorder(micTrack, 'audio') : null;
     } catch (e) {
-      vTrack.stop();
       return toast(`Enregistrement impossible : ${e.message}`);
     }
 
-    s.recVideoTrack = vTrack;
-    s.chunks = [];
-    s.rec.ondataavailable = (e) => e.data.size && s.chunks.push(e.data);
-    s.rec.onstop = saveRec;
-    s.rec.start(1000);
+    s.take = { cam, mic, events: [{ t: 0, index: s.index }], marks: [] };
+    cam?.rec.start(1000);
+    mic?.rec.start(1000);
 
     s.elapsed = 0;
     s.shownSec = -1;
@@ -668,38 +497,50 @@
     setRecUI(true);
   }
 
-  function stopRec() {
-    if (s.rec && s.rec.state !== 'inactive') s.rec.stop();
+  async function stopRec() {
+    const take = s.take;
+    if (!take) return;
+    const duration = recNow();
+    s.take = null;
+    for (const r of [take.cam, take.mic]) if (r && r.rec.state !== 'inactive') r.rec.stop();
+    await Promise.all([take.cam?.stopped, take.mic?.stopped]);
+
+    const toBlob = (r) => (r && r.chunks.length ? new Blob(r.chunks, { type: r.rec.mimeType || r.mime }) : null);
+    s.project = {
+      duration,
+      events: take.events,
+      marks: take.marks,
+      cam: toBlob(take.cam),
+      voice: toBlob(take.mic),
+      source: s.source,
+      slideCount: s.count,
+      renderSlide: renderSlide.bind(null, s.slides, s.source),
+      exported: false,
+    };
+    setRecUI(false);
+    SR.editor.open(s.project);
   }
 
   function togglePause() {
-    if (!s.rec) return;
-    if (s.paused) s.rec.resume(); else s.rec.pause();
+    if (!s.take) return;
+    for (const r of [s.take.cam, s.take.mic]) {
+      if (!r) continue;
+      if (s.paused) r.rec.resume(); else r.rec.pause();
+    }
     s.paused = !s.paused;
     document.body.classList.toggle('paused', s.paused);
     $('pause').textContent = s.paused ? 'Reprendre' : 'Pause';
   }
 
-  function saveRec() {
-    const type = s.rec.mimeType || s.mime || 'video/webm';
-    const blob = new Blob(s.chunks, { type });
-    const ext = type.includes('mp4') ? 'mp4' : 'webm';
-    const d = new Date();
-    const pad = (n) => String(n).padStart(2, '0');
-    const name = `enregistrement-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.${ext}`;
-
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = name;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
-
-    s.recVideoTrack?.stop();
-    s.rec = s.recVideoTrack = null;
-    s.chunks = [];
-    setRecUI(false);
-    toast(`Enregistré (${fmt(s.elapsed)}) : ${name}`);
+  // Marque un raté : au montage, la phrase ratée sera proposée à la coupe
+  function markRetake() {
+    if (!s.take) return;
+    s.take.marks.push(recNow());
+    const n = s.take.marks.length;
+    const el = $('markCount');
+    el.hidden = false;
+    el.textContent = `${n} raté${n > 1 ? 's' : ''}`;
+    toast('Raté marqué. Reprends ta phrase.');
   }
 
   function setRecUI(on) {
@@ -709,13 +550,15 @@
     $('pause').hidden = !on;
     $('pause').textContent = 'Pause';
     $('camSelect').disabled = $('micSelect').disabled = on;
+    $('openEditor').hidden = on || !s.project;
+    if (on) $('markCount').hidden = true;
     if (!on) $('timer').textContent = '00:00';
   }
 
   function tickTimer(now) {
-    if (s.rec && !s.paused) s.elapsed += now - s.lastTick;
+    if (s.take && !s.paused) s.elapsed += now - s.lastTick;
     s.lastTick = now;
-    if (!s.rec) return;
+    if (!s.take) return;
     const sec = Math.floor(s.elapsed / 1000);
     if (sec !== s.shownSec) {
       s.shownSec = sec;
@@ -723,16 +566,29 @@
     }
   }
 
+  function loop(now) {
+    tickTimer(now);
+    if (!editing()) tickMeter();
+    requestAnimationFrame(loop);
+  }
+
   window.addEventListener('beforeunload', (e) => {
-    if (s.rec) e.preventDefault();
+    if (s.take || (s.project && !s.project.exported)) e.preventDefault();
   });
 
   /* ---------- UI ---------- */
 
   function toggleCam() {
+    if (s.take) return toast('Tu pourras masquer la caméra au montage.');
     s.camOn = !s.camOn;
     $('camToggle').classList.toggle('on', s.camOn);
+    document.body.classList.toggle('cam-off-state', !s.camOn);
   }
+
+  // Le montage revient ici via ce rappel
+  SR.onEditorClose = () => {
+    $('openEditor').hidden = !s.project;
+  };
 
   $('file').addEventListener('change', (e) => {
     if (e.target.files.length) loadFiles(e.target.files);
@@ -744,6 +600,7 @@
   $('pause').addEventListener('click', togglePause);
   $('camToggle').addEventListener('click', toggleCam);
   $('textToggle').addEventListener('click', toggleText);
+  $('openEditor').addEventListener('click', () => s.project && SR.editor.open(s.project));
   $('textSmaller').addEventListener('click', () => setTextSize(s.textSize - 2));
   $('textBigger').addEventListener('click', () => setTextSize(s.textSize + 2));
   $('camSelect').addEventListener('change', (e) => startCam(e.target.value));
@@ -754,6 +611,7 @@
   document.addEventListener('click', (e) => e.target.closest('button')?.blur());
 
   document.addEventListener('keydown', (e) => {
+    if (editing()) return;
     if (e.target.matches('select, input') || e.metaKey || e.ctrlKey || e.altKey) return;
     switch (e.key) {
       case 'ArrowRight': case 'ArrowDown': case 'PageDown': case ' ': go(s.index + 1); break;
@@ -762,6 +620,7 @@
       case 'End': go(s.count - 1); break;
       case 'r': case 'R': toggleRec(); break;
       case 'p': case 'P': togglePause(); break;
+      case 'm': case 'M': markRetake(); break;
       case 'c': case 'C': toggleCam(); break;
       case 't': case 'T': toggleText(); break;
       case '+': case '=': setTextSize(s.textSize + 2); break;
@@ -780,6 +639,7 @@
   let dragDepth = 0;
   window.addEventListener('dragenter', (e) => {
     e.preventDefault();
+    if (editing()) return;
     dragDepth++;
     document.body.classList.add('over');
   });
@@ -794,6 +654,7 @@
     e.preventDefault();
     dragDepth = 0;
     document.body.classList.remove('over');
+    if (editing()) return toast("Reviens à l'enregistrement pour changer de diapo.");
     if (e.dataTransfer.files.length) loadFiles(e.dataTransfer.files);
   });
 
@@ -825,10 +686,8 @@
 
   /* ---------- Go ---------- */
 
-  loadPrefs();
   loadTextPrefs();
-  s.bubble = bubbleTarget();
-  requestAnimationFrame(frame);
+  requestAnimationFrame(loop);
   initMedia();
   loadBundled();
 })();
